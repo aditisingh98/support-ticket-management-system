@@ -1,0 +1,8 @@
+# Copy to application-local.yml (gitignored) and fill in local values.
+# Never commit real passwords.
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/support_tickets
+    username: postgres
+    password: CHANGE_ME

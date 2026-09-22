@@ -1,0 +1,36 @@
+# Root
+.idea/
+.vscode/
+*.iml
+*.log
+.DS_Store
+Thumbs.db
+
+# Secrets / local overrides
+.env
+.env.*
+!.env.example
+**/application-local.yml
+**/application-local.yaml
+**/application-*.local.yml
+**/application-*.local.yaml
+**/secrets/
+**/*.pem
+**/*.p12
+**/*.jks
+
+# Local toolchain (not committed)
+.tools/
+
+# Backend
+backend/target/
+backend/.mvn/wrapper/maven-wrapper.jar.download
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# OS / tooling
+*.swp
+*.swo
