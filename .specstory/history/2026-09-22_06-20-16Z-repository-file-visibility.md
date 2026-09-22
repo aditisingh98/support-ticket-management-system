@@ -83,3 +83,1718 @@ This repository currently has **very few files**. From the workspace I can see:
 There is **no application source** yet (no `src`, package manifests, configs for an app, tests, etc.). Git is initialized at `d:\PROJECT\support-ticket-management-system`.
 
 Nothing was created or modified.
+
+---
+
+_**User**_
+
+Before we start implementing the ticket system, I want some project-level instructions so we don't keep repeating the same things in every prompt.
+
+Create the basic Cursor project rules for this project.
+
+I want separate rules for:
+- Java 21 + Spring Boot
+- testing
+- REST API standards
+- documentation
+
+Keep them practical and not overly generic.
+
+For the Spring Boot rules, make sure controllers stay thin, business logic isn't put in controllers, DTOs are used for API boundaries, constructor injection is preferred, and the backend owns business rules.
+
+For testing, make sure business rules and especially ticket status transitions are tested.
+
+For APIs, define consistent HTTP status codes, validation and error responses.
+
+For documentation, keep docs close to the actual decisions we make.
+
+Don't create any application code yet.
+First show me the files you plan to create and what each one will contain.
+
+---
+
+_**Agent (auto-smart)**_
+
+> Auto routed to Grok 4.6
+
+
+
+_**Agent (auto-smart)**_
+
+<think><details><summary>Thought Process</summary>
+I cannot create files directly because I am in Ask mode. I will outline the planned rule files and their contents instead.
+
+I will read the create-rule skill and check for existing .cursor/rules files before outlining the planned files.
+</details></think>
+
+_**Agent (auto-smart)**_
+
+I'll read the Cursor rule-authoring skill and the repo's current setup, then outline the rule files and their contents—no application code.
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2** • Read file: C:\Users\Aditi Singh\.cursor\skills-cursor\create-rule\SKILL.md</summary>
+
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="search" data-tool-name="glob_file_search"><details>
+<summary>Tool use: **glob_file_search** • Searched codebase "" • **0** results in **1** directory</summary>
+
+Directory: **`d:\PROJECT\support-ticket-management-system`** (0 files)
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2** • Read file: d:\PROJECT\support-ticket-management-system\README.md</summary>
+
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<think><details><summary>Thought Process</summary>
+I'll outline the planned project rule files and their contents before generating them.
+
+I cannot create files directly in Ask mode. I will provide the exact file names and contents for each rule set instead.
+
+I'll place the rules as .mdc files in `.cursor/rules/`. Each rule stays under 50 lines and covers one concern. I'm weighing whether to use `alwaysApply` or file globs for the Spring Boot rules, favoring globs for conciseness.
+
+I've settled on four rule files with specific globs. Spring Boot rules will target Java sources and build files. Testing rules will target test classes. API rules will target controllers and DTOs. Documentation rules will target markdown files. I'll ask the user to confirm these scopes before generating the files.
+
+I'll set all four rule files to `alwaysApply: true` since they are project-level instructions meant to avoid repetition across every prompt. This removes the need to ask the user about scope.
+
+Ticket status transitions will be a dedicated testing rule even before implementation begins. REST API rules will use standard HTTP codes: 200 for GET and PUT, 201 for POST, 204 for DELETE, 400 for validation errors, 404 for missing resources, and 409 for invalid state changes. Errors will return RFC 7807 Problem Details in JSON format.
+
+Documentation rules will anchor decisions in docs/adr and update them only after implementation, never before. I will present the concrete rule contents now and remind the user to switch to Agent mode to generate the files.
+</details></think>
+
+_**Agent (auto-smart)**_
+
+I'm in **Ask mode**, so I can’t create files. Below is the plan: four Cursor rules under `.cursor/rules/` (`.mdc` + YAML frontmatter). No application code.
+
+**Scope:** all four `alwaysApply: true` so they apply without repeating them in prompts. Each stays short and ticket-system-specific. Switch to Agent mode if you want these written to disk.
+
+---
+
+### 1. `.cursor/rules/java-spring-boot.mdc`
+
+**Purpose:** Java 21 + Spring Boot layering, injection, DTOs, who owns rules.
+
+**Contents:**
+
+```markdown
+---
+description: Java 21 and Spring Boot layering for the ticket backend
+alwaysApply: true
+---
+
+# Java 21 + Spring Boot
+
+Use Java 21 and Spring Boot. Prefer records, sealed types, and pattern matching where they clarify domain code. Do not introduce other JVM languages or frameworks.
+
+## Layers
+
+- **Controllers** stay thin: HTTP mapping, auth principal, call one application/service method, map the result to a response DTO. No status-machine logic, no persistence, no “if currentStatus then …”.
+- **Services / use cases** own ticket business rules (create, assign, status transitions, SLA, comments). The backend is the source of truth; the UI must not invent transition rules.
+- **Repositories** only load and save. No domain decisions in query methods.
+
+## API boundaries
+
+- Request/response types at HTTP boundaries are DTOs (records preferred). Do not expose JPA entities, Hibernate proxies, or persistence annotations on API types.
+- Map entity ↔ DTO in the application layer (or a dedicated mapper), not inside the controller beyond a single map call.
+
+## Injection and config
+
+- Prefer **constructor injection**. Do not use `@Autowired` on fields. Make dependencies `final`.
+- `@ConfigurationProperties` for typed config; no scattered `env.get(...)` for business settings.
+
+## Persistence
+
+- Keep transactional boundaries on the service/use-case, not the controller.
+- Fail closed: unknown ticket id → not found; illegal transition → domain/conflict error, not a silent no-op.
+```
+
+---
+
+### 2. `.cursor/rules/testing.mdc`
+
+**Purpose:** test business rules, especially ticket status transitions.
+
+**Contents:**
+
+```markdown
+---
+description: Testing rules for ticket domain and status transitions
+alwaysApply: true
+---
+
+# Testing
+
+Prefer fast unit tests for domain/service rules. Use `@SpringBootTest` only when the test needs the real slice (web, JPA, security). Do not replace domain tests with controller-only tests.
+
+## What must be tested
+
+- Ticket **status transitions** are mandatory coverage, not optional:
+  - allowed paths (e.g. OPEN → IN_PROGRESS → RESOLVED → CLOSED, or whatever we document)
+  - forbidden paths (e.g. CLOSED → OPEN without an explicit reopen rule)
+  - who may transition (requester vs agent vs admin) once roles exist
+  - side effects that are part of the rule (assignee required, resolution notes, timestamps)
+- Other business rules (assignment, uniqueness, required fields) get the same treatment: assert outcomes and errors, not only “no exception”.
+
+## How
+
+- Name tests after the rule: `shouldRejectTransitionFromClosedToInProgress`, not `testUpdate1`.
+- Drive transitions through the **service/domain API**, not by setting entity fields in the test and saving.
+- Assert HTTP status in API tests; still assert the domain error for illegal transitions (typically 409).
+- No production business rules that exist only in tests or only in the UI.
+```
+
+---
+
+### 3. `.cursor/rules/rest-api.mdc`
+
+**Purpose:** HTTP statuses, validation, error body shape.
+
+**Contents:**
+
+```markdown
+---
+description: REST conventions for ticket HTTP APIs
+alwaysApply: true
+---
+
+# REST API standards
+
+JSON, resource-oriented paths (`/api/v1/tickets`, `/api/v1/tickets/{id}`). No verbs in paths (`/updateStatus` → `PATCH /api/v1/tickets/{id}` or a documented sub-resource).
+
+## Status codes
+
+| Situation | Status |
+|---|---|
+| GET success | 200 |
+| POST create | 201 + `Location` |
+| PUT/PATCH success | 200 (or 204 if no body) |
+| DELETE success | 204 |
+| Bean validation / malformed body | 400 |
+| Unauthenticated | 401 |
+| Authenticated but not allowed | 403 |
+| Ticket or nested resource missing | 404 |
+| Illegal status transition or conflicting update | 409 |
+| Valid JSON but semantically unprocessable (if we distinguish from 400) | 422 |
+
+Do not return 200 with an error payload. Do not use 500 for expected domain failures.
+
+## Validation
+
+- Validate request DTOs with Jakarta Validation (`@Valid` / `@NotBlank`, etc.).
+- Cross-field and status-machine rules live in the service, not only on annotations.
+
+## Errors
+
+- Use a **single** error shape (prefer RFC 7807 Problem Details: `type`, `title`, `status`, `detail`, `instance`).
+- Validation errors include a `errors` (or `violations`) list: field + message.
+- Illegal transitions: 409, `detail` names current status, attempted status, and that the transition is not allowed.
+- Never put stack traces, SQL, or entity internals in responses.
+```
+
+---
+
+### 4. `.cursor/rules/documentation.mdc`
+
+**Purpose:** docs track real decisions, not speculative architecture.
+
+**Contents:**
+
+```markdown
+---
+description: Keep project docs aligned with decisions we actually make
+alwaysApply: true
+---
+
+# Documentation
+
+Write docs only for decisions we have made (status model, API contracts, auth, ownership). Do not add future-roadmap architecture or unused ADR stubs.
+
+## Where
+
+- Durable decisions: `docs/decisions/` (one short markdown file per decision, date + status + context + decision + consequences).
+- API behavior that agents must follow: keep the REST rule and the decision doc in sync when a status code or path changes.
+- Do not duplicate the same rule in README, ADRs, and comments. README points to `docs/`; code comments explain non-obvious *why*, not the HTTP table.
+
+## When implementing
+
+- If we invent a ticket status, transition, or error code, update the decision doc and tests in the same change.
+- If code and docs disagree, **code + tests win**; fix the doc in that change, do not “document later”.
+- Specs and rules stay in the repo next to the code. Do not rely on chat history as the source of truth.
+```
+
+---
+
+**Not creating:** `src/`, `pom.xml`, controllers, entities, or any application code.
+
+After you switch to **Agent mode**, I can add only these four files (and `.cursor/rules/` if needed). If you want file-scoped globs instead of always-on (e.g. REST only on `*Controller.java`), say so before we write them.
+
+---
+
+_**User**_
+
+Let's keep the four core rules always-on for now.
+
+Create these four files:
+
+.cursor/rules/java-springboot.md
+.cursor/rules/testing.md
+.cursor/rules/api-standards.md
+.cursor/rules/documentation.md
+
+Keep the rules practical and specific to this project. Don't add extra rule files yet.
+
+For Java/Spring Boot:
+- Java 21
+- Spring Boot conventions
+- constructor injection
+- thin controllers
+- business logic in the service/domain layer
+- DTOs at API boundaries
+- don't expose JPA entities directly
+- meaningful exception handling
+- keep the implementation aligned with the specifications
+
+For testing:
+- test business behaviour, not just code coverage
+- unit tests for business logic
+- integration tests for important API/database flows
+- explicitly test every allowed and rejected ticket status transition
+- include validation and error cases
+
+For API standards:
+- REST conventions
+- appropriate HTTP status codes
+- request validation
+- consistent error response format
+- DTO-based API contracts
+- don't put business logic in controllers
+
+For documentation:
+- document decisions and assumptions
+- keep documentation consistent with the actual implementation
+- don't invent requirements
+- update relevant documentation when an important design decision changes
+
+Don't create application code.
+
+Show me the proposed contents of the four files first. Then I'll review them before you create them.
+
+---
+
+_**Agent (auto-smart)**_
+
+> Auto routed to Grok 4.6
+
+
+
+_**Agent (auto-smart)**_
+
+<think><details><summary>Thought Process</summary>
+Drafting the proposed contents for the four rule files. I will present them for review before creating the actual files.
+
+The user requested .md files rather than the standard .mdc format. I will present the proposed contents of all four files for review before creating them.
+</details></think>
+
+_**Agent (auto-smart)**_
+
+Proposed contents only — **no files will be created** until you approve.
+
+Filenames match what you asked for (plain `.md`). Cursor’s usual format is `.mdc` with YAML frontmatter; I’ll add `alwaysApply: true` so they stay always-on if you later rename them to `.mdc`. If you want these exact `.md` names only, I’ll keep them as shown.
+
+---
+
+### `.cursor/rules/java-springboot.md`
+
+```markdown
+---
+description: Java 21 and Spring Boot conventions for the ticket backend
+alwaysApply: true
+---
+
+# Java 21 + Spring Boot
+
+Use Java 21 and Spring Boot. Prefer records, sealed types, and pattern matching where they make domain code clearer. Do not add other JVM languages or web frameworks.
+
+## Layers
+
+- Controllers stay thin: map HTTP, bind and validate the request DTO, call one service/use-case method, return a response DTO.
+- Do not put ticket status machines, assignment rules, SLA, or persistence in controllers.
+- Business rules live in the service/domain layer. The backend owns those rules; the UI must not define them.
+- Repositories load and save only. No “is this transition allowed?” checks in query methods.
+
+## DTOs and persistence
+
+- HTTP boundaries use DTOs (records preferred). Never expose JPA entities, lazy collections, or persistence annotations on API types.
+- Map entity ↔ DTO in the application layer, not as ad-hoc field copies scattered through the controller.
+
+## Injection, transactions, exceptions
+
+- Prefer constructor injection. Dependencies are `final`. Do not use field `@Autowired`.
+- `@Transactional` belongs on the service/use-case, not the controller.
+- Use meaningful exceptions (`TicketNotFoundException`, `IllegalTicketTransitionException`, validation failures). Map them to HTTP in one place (exception handler). Do not swallow errors or return 200 with an error body.
+- Unknown ticket → not found. Illegal status transition → conflict/domain error, never a silent no-op.
+
+## Specs
+
+- Implement only behaviour that is specified. If code and a spec disagree, stop and align them; do not invent extra product rules in the implementation.
+```
+
+---
+
+### `.cursor/rules/testing.md`
+
+```markdown
+---
+description: Test ticket business behaviour, including every status transition
+alwaysApply: true
+---
+
+# Testing
+
+Test behaviour that matters to the product, not line coverage. A passing suite with untested status rules is not done.
+
+## Unit vs integration
+
+- Unit-test domain/service rules (status, assignment, validation) without starting the full Spring context when possible.
+- Add integration tests for important HTTP and database flows (create ticket, fetch by id, persist a transition, unique/not-found).
+- Do not treat controller smoke tests as a substitute for domain tests.
+
+## Ticket status transitions
+
+- Explicitly test **every allowed** transition and **every rejected** transition for the agreed status model.
+- Drive transitions through the service/domain API. Do not set entity fields in the test and save to “prove” a transition.
+- Cover actors once roles exist (who may transition). Cover required side effects (assignee, resolution note, timestamps) when they are part of the rule.
+
+## Validation and errors
+
+- Assert rejected input (blank subject, invalid body) and domain errors (unknown id, illegal transition).
+- API tests assert HTTP status **and** the stable error shape. Domain tests assert the exception or result type.
+- Name tests after the rule (`shouldRejectTransitionFromClosedToInProgress`), not `testUpdate1`.
+```
+
+---
+
+### `.cursor/rules/api-standards.md`
+
+```markdown
+---
+description: REST, status codes, validation, and error shape for ticket APIs
+alwaysApply: true
+---
+
+# API standards
+
+REST, JSON, versioned resource paths (`/api/v1/tickets`, `/api/v1/tickets/{id}`). No RPC-style verbs in paths.
+
+Controllers do not contain business logic. They validate the request DTO, call the service, and return a response DTO.
+
+## Contracts
+
+- Request and response bodies are DTOs. Do not serialize JPA entities.
+- Breaking JSON field or status-code changes require a spec/docs update in the same change.
+
+## HTTP status codes
+
+| Situation | Status |
+|---|---|
+| GET success | 200 |
+| POST create | 201 + `Location` |
+| PUT/PATCH success | 200 (204 only if no body is specified) |
+| DELETE success | 204 |
+| Validation or malformed JSON | 400 |
+| Unauthenticated | 401 |
+| Authenticated but not allowed | 403 |
+| Ticket or nested resource missing | 404 |
+| Illegal status transition or conflicting update | 409 |
+
+Do not use 500 for expected domain failures.
+
+## Validation and errors
+
+- Validate request DTOs with Jakarta Validation (`@Valid`). Cross-field and status-machine rules stay in the service.
+- One error shape for all APIs (prefer RFC 7807: `type`, `title`, `status`, `detail`, `instance`). Validation failures include field + message.
+- Illegal transition: 409; `detail` includes current status, attempted status, and that it is not allowed.
+- Never put stack traces, SQL, or persistence internals in responses.
+```
+
+---
+
+### `.cursor/rules/documentation.md`
+
+```markdown
+---
+description: Document real decisions; keep docs aligned with the implementation
+alwaysApply: true
+---
+
+# Documentation
+
+Document decisions and assumptions we have actually made (status model, API contracts, auth, ownership). Do not invent requirements, statuses, or endpoints to make the docs look complete.
+
+## Where and what
+
+- Durable decisions: `docs/decisions/` — short files with date, status, context, decision, consequences, and explicit assumptions.
+- README points at those docs. Do not copy the same HTTP table into three places.
+
+## Consistency
+
+- If implementation and docs disagree, **code and tests win**; update the docs in the same change.
+- When an important design decision changes (status set, transition matrix, error codes, resource paths), update the relevant decision doc and any API notes in that change.
+- Chat history is not the source of truth. Specs, rules, and `docs/` in the repo are.
+```
+
+---
+
+Reply with edits (or “create as-is”) and I will write only these four files — no application code.
+
+---
+
+_**User**_
+
+create as is
+
+---
+
+_**Agent (auto-smart)**_
+
+> Auto routed to Grok 4.6
+
+
+
+_**Agent (auto-smart)**_
+
+<think><details><summary>Thought Process</summary>
+Creating the four rule files exactly as proposed earlier.
+</details></think>
+
+_**Agent (auto-smart)**_
+
+Creating the four always-on rule files exactly as proposed.
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2** • Edit file: d:\PROJECT\support-ticket-management-system\.cursor\rules\java-springboot.md</summary>
+
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2** • Edit file: d:\PROJECT\support-ticket-management-system\.cursor\rules\testing.md</summary>
+
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2** • Edit file: d:\PROJECT\support-ticket-management-system\.cursor\rules\api-standards.md</summary>
+
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2** • Edit file: d:\PROJECT\support-ticket-management-system\.cursor\rules\documentation.md</summary>
+
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<think><details><summary>Thought Process</summary>
+All four files have been created.
+
+No application code was generated. The files use .md extension as requested. Frontmatter includes alwaysApply: true.
+</details></think>
+
+_**Agent (auto-smart)**_
+
+Created the four always-on rules as proposed. No application code was added.
+
+**What changed:** project Cursor rules so Java/Spring layering, tests (including status transitions), REST contracts, and docs stay consistent without repeating them in prompts.
+
+**Files:**
+- `.cursor/rules/java-springboot.md`
+- `.cursor/rules/testing.md`
+- `.cursor/rules/api-standards.md`
+- `.cursor/rules/documentation.md`
+
+Each file has `alwaysApply: true` in the frontmatter. Cursor’s usual rule extension is `.mdc`; these are `.md` as requested. If they don’t show up as always-on in the rule picker, we can rename them to `.mdc` later.
+
+---
+
+_**User**_
+
+The project rules are in place.
+
+Next I want three reusable commands that we'll use during development:
+
+1. review-code
+2. review-spec
+3. generate-tests
+
+I don't want these commands to blindly modify the project.
+
+review-code should compare the implementation against our project rules and specifications and report issues.
+
+review-spec should look for missing requirements, contradictions, unclear business rules and differences between specifications.
+
+generate-tests should derive tests from the specifications, especially business rules and the ticket state machine.
+
+Create them under:
+
+.cursor/commands/
+
+Show me the proposed contents before creating the files.
+
+---
+
+_**Agent (auto-smart)**_
+
+> Auto routed to Grok 4.6
+
+
+
+_**Agent (auto-smart)**_
+
+<think><details><summary>Thought Process</summary>
+Drafting proposed contents for the three Cursor commands before creating them.
+
+Reviewing Cursor command documentation and existing project rules to ensure accurate formatting and references.
+</details></think>
+
+_**Agent (auto-smart)**_
+
+I'll check how Cursor commands are structured and align the three drafts with our existing rules—proposal only, no files yet.
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+File not found
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="get_mcp_tools"><details>
+<summary>Tool use: **get_mcp_tools**</summary>
+
+Parameters:
+
+```json
+{
+  "server": "cursor",
+  "toolName": "WebSearch"
+}
+```
+Result:
+
+```json
+{
+  "content": "{\n  \"tool\": \"WebSearch\",\n  \"description\": \"Search web for real-time info on any topic; use for up-to-date facts not in training data, like current events or tech updates. Results include snippets and URLs.\",\n  \"inputSchema\": {\n    \"type\": \"object\",\n    \"properties\": {\n      \"search_term\": {\n        \"type\": \"string\",\n        \"description\": \"The search term to look up on the web. Be specific and include relevant keywords for better results. For technical queries, include version numbers or dates if relevant.\"\n      },\n      \"explanation\": {\n        \"type\": \"string\",\n        \"description\": \"One sentence explanation as to why this tool is being used, and how it contributes to the goal.\"\n      }\n    },\n    \"required\": [\n      \"search_term\"\n    ]\n  }\n}"
+}
+```
+Status: **completed**
+
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="search" data-tool-name="glob_file_search"><details>
+<summary>Tool use: **glob_file_search** • Searched codebase "" • **4** results in **1** directory</summary>
+
+Directory: **`d:\PROJECT\support-ticket-management-system`** (4 files)
+
+| File |
+|------|
+| `../.cursor\rules\testing.md` |
+| `../.cursor\rules\documentation.md` |
+| `../.cursor\rules\api-standards.md` |
+| `../.cursor\rules\java-springboot.md` |
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<think><details><summary>Thought Process</summary>
+Checking the format for Cursor custom commands.
+
+Planning to create the three commands under `.cursor/commands/`.
+</details></think>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="web_search"><details>
+<summary>Tool use: **web_search**</summary>
+
+Parameters:
+
+```json
+{
+  "searchTerm": "Cursor IDE .cursor/commands custom slash commands markdown format 2026"
+}
+```
+Result:
+
+```json
+{
+  "isFinal": true,
+  "references": [
+    {
+      "chunk": "Links:\n1. [Cursor Commands: Legacy Slash Workflows (Now Agent Skills) · Learn Cursor](https://www.learncursor.dev/learn/cursor-rules/cursor-commands)\n2. [Cursor Agent Skills: How to Use and Create Reusable Agent Commands · Learn Cursor](https://www.learncursor.dev/learn/cursor-agents/cursor-agent-skills)\n3. [](https://cursor.com/docs/skills)\n4. [](https://cursor.com/help/customization/skills)\n5. [Agent Skills](https://cursor.com/docs/skills.md)\n\nSynthesis:\nCustom slash commands in Cursor have been superseded by Agent Skills [1][2]. While existing markdown files in.cursor/commands/ still function, Cursor now uses the.cursor/skills/ directory [1][3]. To migrate, type the built-in /migrate-to-skills command in the Agent chat, which automatically converts commands into SKILL.md files [4][5]. New workflows should be created as a folder under.cursor/skills/ containing a SKILL.md file with YAML frontmatter [1][2]. To replicate the old human-only trigger behavior, set disable-model-invocation: true in the frontmatter [3][6]. Example format:\n\n---\nname: my-command\ndescription: Brief task description\ndisable-model-invocation: true\n---\n\nInstructions here [3][6].\n\nHighlights:\n\u003cresult id=\"1\"\u003e\n\u003ctitle\u003eCursor Commands: Legacy Slash Workflows (Now Agent Skills) · Learn Cursor\u003c/title\u003e\n\u003curl\u003ehttps://www.learncursor.dev/learn/cursor-rules/cursor-commands\u003c/url\u003e\n\u003ccontent\u003eCursor commands are the legacy form of saved slash-menu prompts: Markdown files under `.cursor/commands/`, one repeatable job per file. Cursor has retired them in favour of Agent Skills; the commands page is gone from cursor.com/docs, and the built-in `/migrate-to-skills` converter turns old commands into skills that keep their human-only trigger. Existing command files still load, but new slash workflows belong in `.cursor/skills/`.\n...\nAs of July 2026 the commands page is gone
+… (output truncated)
+```
+User decision: **accepted**
+
+Status: **completed**
+
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<think><details><summary>Thought Process</summary>
+Preparing the proposed contents for the three reusable commands under `.cursor/commands/`.
+
+The three files will be named `review-code.md`, `review-spec.md`, and `generate-tests.md`. Each will be a read-only markdown script that reports findings without modifying the project. `review-code` compares implementation against rules and specifications. `review-spec` flags missing requirements, contradictions, and unclear business rules. `generate-tests` derives test cases from specifications, particularly business rules and the ticket state machine.
+
+`generate-tests` will default to reporting proposed test cases rather than writing files automatically. This avoids blind modification while still deriving tests from the specifications.
+
+Each command will include a hard read-only clause. Fixes from review-code or review-spec will only be applied if the user explicitly requests them. The user will see the full proposed contents before any files are created.
+</details></think>
+
+_**Agent (auto-smart)**_
+
+Proposed contents only — **files will not be created** until you approve.
+
+Cursor still loads Markdown under `.cursor/commands/` as slash commands (`/review-code`, etc.). These stay **read-only by default**: they report or propose; they do not edit the repo unless you later say to apply.
+
+---
+
+### `.cursor/commands/review-code.md`
+
+```markdown
+# review-code
+
+Review the current implementation against this project's rules and specifications. **Do not modify any files.** Do not apply fixes, refactors, or “small cleanups”. Report only.
+
+If there is no implementation yet, say so and stop.
+
+## Sources of truth (in this order)
+
+1. Specs and decision docs in the repo (`docs/`, ADRs under `docs/decisions/`, OpenAPI/spec files if present).
+2. Project rules: `.cursor/rules/java-springboot.md`, `testing.md`, `api-standards.md`, `documentation.md`.
+3. Tests, only as evidence of intended behaviour — tests that contradict a spec are a finding, not a licence to ignore the spec.
+
+Do not invent product requirements that are not in those sources.
+
+## What to check
+
+- **Layering:** thin controllers; business rules in service/domain; constructor injection; DTOs at HTTP boundaries; JPA entities not exposed.
+- **Ticket domain:** status transitions match the specified state machine; illegal transitions fail with a domain error (not a silent no-op); unknown tickets are not found.
+- **API:** paths, status codes, validation, and error shape vs `api-standards.md` and the spec.
+- **Exceptions:** meaningful types, mapped in one handler; no 200-with-error-body; no 500 for expected domain failures.
+- **Tests vs rules:** missing coverage for specified transitions or validation is a defect in the review, even if production code “looks fine”.
+- **Spec drift:** behaviour in code that is not specified, or specified behaviour that is missing.
+
+## Output
+
+Use this structure:
+
+### Summary
+Pass / issues found (counts by severity).
+
+### Findings
+For each issue: severity (`blocker` | `major` | `minor`), location (file/symbol), which rule or spec clause it violates, what the code does, what it should do. Quote or cite the spec/rule; do not hand-wave.
+
+### Spec gaps in code
+Specified behaviour with no implementation (or only UI-side logic).
+
+### Unspecified behaviour
+Implementation that is not in any spec — flag it; do not treat it as approved.
+
+### Out of scope
+Do not rewrite code. Optionally list suggested fix order (no patches).
+```
+
+---
+
+### `.cursor/commands/review-spec.md`
+
+```markdown
+# review-spec
+
+Review the project's specifications and decision docs only. **Do not modify any files** (not specs, not code, not tests). Do not “tidy” wording. Report only.
+
+If specs are missing or empty, say what is absent and stop. Do not invent a product to fill the gaps.
+
+## Inputs
+
+Collect and compare every spec-like source in the repo, for example:
+
+- `docs/` and `docs/decisions/`
+- README (only where it states requirements)
+- OpenAPI / AsyncAPI / other contract files
+- `.cursor/rules/` (constraints on how we build, not extra product features)
+- Test names/assertions if they document rules the specs omit (treat as a spec-vs-test inconsistency)
+
+## What to look for
+
+- **Missing requirements:** roles, ticket fields, status set, transition matrix, assignment, comments, SLA, authz, error cases, idempotency — only flag a gap if the rest of the spec implies that area should be defined.
+- **Contradictions:** two docs (or a doc and a rule) that disagree on statuses, paths, HTTP codes, or who may do what.
+- **Unclear business rules:** vague verbs (“handle”, “update as needed”), missing actors, missing preconditions, undefined “closed” vs “resolved”.
+- **State machine holes:** statuses with no inbound/outbound transitions; transitions with no actor or guard; reopen/cancel unspecified.
+- **Differences between specifications:** table of topic → source A → source B → conflict or overlap.
+- **Assumptions:** implicit rules that are not written down. List them as questions, not as decided requirements.
+
+## Output
+
+### Coverage map
+What is specified vs what is only assumed.
+
+### Contradictions
+Paired citations (paths + short quotes) and why they cannot both be true.
+
+### Unclear rules
+Each item: question the spec must answer before implementation.
+
+### Cross-spec differences
+Including rule files vs product docs (e.g. 409 for illegal transitions vs a spec that says 400).
+
+### Blockers for implementation
+What must be decided before coding that area.
+
+Do not propose a new status model or API unless you label it **suggestion only** and keep it separate from findings.
+```
+
+---
+
+### `.cursor/commands/generate-tests.md`
+
+```markdown
+# generate-tests
+
+Derive a test plan and concrete test cases from the specifications, especially business rules and the ticket state machine. **Do not create or edit project files** unless the user explicitly asks to write tests after reviewing this output.
+
+If the status model or transitions are not specified, say so and list only tests that existing specs support. Do not invent statuses or transitions to “complete” the suite.
+
+## Sources
+
+- Product specs and `docs/decisions/`
+- `.cursor/rules/testing.md` and `api-standards.md` (how to test and which HTTP/error assertions)
+- Existing tests: propose additions/gaps; do not silently duplicate
+
+## What to derive
+
+1. **State machine (mandatory):** one case per **allowed** transition and one per **rejected** transition in the agreed matrix. Include actor/role if the spec defines who may transition. Include side effects the spec requires (assignee, notes, timestamps).
+2. **Other business rules:** create, assign, validation (blank subject, etc.), not-found, conflict/duplicate if specified.
+3. **API/integration:** important HTTP + DB flows (create, get by id, persist a transition, 400/404/409 and error shape). Keep controllers free of the rule under test — domain/service tests own the machine.
+4. **Names:** behaviour-oriented (`shouldRejectTransitionFromClosedToInProgress`), not `testUpdate1`.
+
+Drive domain cases through the service/domain API in the proposed tests, not by mutating entity fields and saving.
+
+## Output
+
+### Assumptions
+Only what the specs actually state; mark anything inferred.
+
+### Unit cases
+Table: rule id / spec cite, test name, arrange, act, expected (including exception type or result).
+
+### Transition matrix coverage
+Allowed vs rejected; mark any cell the spec leaves undefined (do not fill it in).
+
+### Integration cases
+Endpoint, setup data, expected status, error body fields if applicable.
+
+### Already covered
+Existing tests that match a derived case.
+
+### Proposed files
+Suggested class names under `src/test/java/…` only as a proposal. **Do not write them in this run.**
+
+End with: “Say if you want these written to the repo.” Until then, make no file changes.
+```
+
+---
+
+Reply with edits or **create as-is** and I will add only these three files under `.cursor/commands/`.
+
+---
+
+_**User**_
+
+Okay, the project instructions are in place.
+
+Let's start with the actual assignment now.
+
+I don't want to write code yet. I want to understand the requirements properly first.
+
+Here are the application requirements:
+
+Build a Support Ticket Management System using:
+
+- Java 21
+- Spring Boot
+- PostgreSQL/H2
+- REST API
+- React/Next.js or equivalent frontend
+- Cursor
+- GitHub Copilot
+
+Application requirements:
+
+1. Create a ticket.
+2. List tickets.
+3. View ticket details.
+4. Update title, description, priority and assignee.
+5. Add comments.
+6. Search tickets by keyword.
+7. Filter tickets by status.
+8. Persist data in a database.
+9. Validate input at the backend.
+10. Display meaningful errors in the UI.
+
+The backend must enforce this ticket state machine:
+
+OPEN → IN_PROGRESS → RESOLVED → CLOSED
+
+OPEN → CANCELLED
+IN_PROGRESS → CANCELLED
+
+Invalid transitions must be rejected.
+
+Examples of invalid transitions:
+
+CLOSED → OPEN
+RESOLVED → OPEN
+CANCELLED → OPEN
+
+Core acceptance criteria:
+
+- Ticket can be created from UI.
+- Tickets can be listed.
+- Ticket details can be viewed.
+- Ticket fields can be updated.
+- Assignee can be changed.
+- Comments can be added.
+- Search works.
+- Status filter works.
+- Valid status transitions work.
+- Invalid status transitions are rejected by backend.
+- Data survives application restart.
+- Backend validation works.
+- UI shows meaningful errors.
+- State-machine integration tests pass.
+- No secrets are committed.
+
+For now, don't create any files and don't write implementation code.
+
+Go through these requirements and help me separate:
+
+1. Explicit requirements
+2. Business rules
+3. Validation rules
+4. Technical requirements
+5. Acceptance criteria
+6. Things that are unclear
+7. Assumptions we should NOT make without justification
+
+I'm especially interested in the status state machine because it must be enforced by the backend, not just the UI.
+
+Also point out anything you think is missing or ambiguous, but don't invent requirements to fill the gaps.
+
+---
+
+_**Agent (auto-smart)**_
+
+> Auto routed to Grok 4.6
+
+
+
+_**Agent (auto-smart)**_
+
+<think><details><summary>Thought Process</summary>
+I'll analyze the requirements without writing code or files. I'll separate explicit requirements, business rules, validation rules, technical requirements, acceptance criteria, ambiguities, and assumptions. I'll also examine the status state machine and identify missing or unclear items.
+
+I'm treating the project rules as constraints rather than new requirements. I'll be especially careful with the status state machine. The provided stack includes Java 21, Spring Boot, PostgreSQL or H2, a REST API, and a React or Next.js frontend.
+
+Functional requirements include creating, listing, viewing, updating ticket fields, adding comments, searching, filtering, and persisting data. Backend validation and UI error display are required. The state machine defines valid transitions: OPEN to IN_PROGRESS to RESOLVED to CLOSED, plus direct OPEN to CANCELLED and IN_PROGRESS to CANCELLED. Invalid transitions such as CLOSED back to OPEN are rejected. Acceptance criteria are listed. I will not invent missing requirements.
+
+I will structure the analysis clearly without generating files or code. For the status state machine, I am enumerating explicitly specified transitions, inferring which pairs allow reverse movement, checking whether intermediate states can be skipped, and clarifying initial status on creation, allowed transitions from terminal states, and who may trigger changes.
+
+I am distinguishing between general field updates and dedicated status transitions. I am also checking whether CANCELLED and CLOSED are terminal states. The provided examples of invalid transitions do not exhaust all forbidden pairs.
+
+I should not assume that skipping intermediate states is permitted. If the allowed transitions form a complete directed graph, then OPEN to RESOLVED would be invalid because the path is not explicitly listed. The requirement to reject invalid transitions means only the explicitly defined arrows are valid.
+
+I will flag that treating the listed arrows as the complete allowed set is an interpretation that needs confirmation. The requirement does not explicitly state that creation starts at OPEN, though the machine begins there.
+
+Several ambiguities remain. Priority values are not specified. Assignee could be a user entity or free text. Comment fields, editability, and search scope are unclear. List pagination, sorting, and case sensitivity are undefined. Auth roles and permissions are missing. Create endpoint fields are not listed. ID formats, timestamps, and database selection criteria are absent. Frontend framework choice is left open.
+
+GitHub Copilot is an environment tool, not a software feature. Project rules are internal conventions, not assignment requirements.
+
+I will flag specific assumptions that must not be made: user accounts, email notifications, SLAs, attachments, multi-tenancy, soft deletes, audit logs, and UI-only enforcement of invalid transitions. The acceptance criteria align closely with the numbered requirements.
+</details></think>
+
+_**Agent (auto-smart)**_
+
+This is a requirements pass only: no files and no implementation. Below is only what the assignment states, plus gaps and interpretations that still need a decision. Project Cursor rules are **build conventions**, not extra product features.
+
+---
+
+## 1. Explicit requirements
+
+**Stack / delivery**
+- Java 21, Spring Boot, PostgreSQL/H2, REST API.
+- Frontend: React, Next.js, or equivalent.
+- Tools: Cursor, GitHub Copilot.
+- Persist data in a database so it **survives restart**.
+- Backend **validates input**.
+- UI shows **meaningful errors**.
+- **No secrets in Git**.
+- **State-machine integration tests** must pass.
+
+**Capabilities**
+1. Create a ticket (including **from the UI**).
+2. List tickets.
+3. View ticket details.
+4. Update **title, description, priority, and assignee** (assignee change is also called out in acceptance).
+5. Add comments.
+6. Search by **keyword**.
+7. Filter by **status**.
+8. Backend **enforces** the ticket state machine; invalid transitions are **rejected** (not only hidden in the UI).
+
+**Named statuses and listed allowed edges**
+- `OPEN → IN_PROGRESS → RESOLVED → CLOSED`
+- `OPEN → CANCELLED`
+- `IN_PROGRESS → CANCELLED`
+
+**Named invalid examples**
+- `CLOSED → OPEN`
+- `RESOLVED → OPEN`
+- `CANCELLED → OPEN`
+
+---
+
+## 2. Business rules
+
+These are the product rules that are actually written down.
+
+**State machine (backend-owned)**  
+The backend must accept only legal status changes and reject illegal ones. The UI must not be the place those rules live.
+
+**Allowed transitions that are written as arrows**
+
+| From | To |
+|------|-----|
+| OPEN | IN_PROGRESS |
+| OPEN | CANCELLED |
+| IN_PROGRESS | RESOLVED |
+| IN_PROGRESS | CANCELLED |
+| RESOLVED | CLOSED |
+
+**Invalid transitions that are written as examples**  
+Reopening from `CLOSED`, `RESOLVED`, or `CANCELLED` back to `OPEN` is forbidden.
+
+**What is *not* a written business rule**  
+Who may change status, whether comments are allowed in every status, whether fields can still be edited after `CLOSED`/`CANCELLED`, uniqueness of tickets, default assignee, SLA, notifications, etc. Those are not in the assignment.
+
+---
+
+## 3. Validation rules
+
+**Explicit**
+- Input is validated **on the backend**.
+- Invalid **status transitions** are rejected.
+- UI must show **meaningful** errors (implies the API must return something the UI can display; the assignment does not define the JSON shape).
+
+**Not specified (do not treat as decided)**
+- Required fields on create (title? description? priority?).
+- Length/format of title, description, comments, keyword.
+- Allowed **priority** values.
+- Whether assignee must exist as a user vs free-text name.
+- Whether status on create is sent by the client or set by the server.
+- Whether “update fields” may include `status`, or status is a separate operation.
+- HTTP status codes (our `api-standards` rule is a **project convention**, not an assignment requirement).
+
+---
+
+## 4. Technical requirements
+
+- Java 21 + Spring Boot backend.
+- REST API.
+- Database: PostgreSQL and/or H2; data must persist across restart (so not “memory only”).
+- Some web UI (React/Next or equivalent) for create, list, detail, update, comments, search, filter, errors.
+- Integration tests covering the **state machine**.
+- Secrets not committed.
+- Cursor + Copilot are **how you build**, not runtime features of the app.
+
+H2 vs PostgreSQL **when** (dev, test, prod) is not specified.
+
+---
+
+## 5. Acceptance criteria
+
+Taken from the assignment list (not extra QA ideas):
+
+- Ticket can be created from the UI.
+- Tickets can be listed.
+- Ticket details can be viewed.
+- Ticket fields can be updated.
+- Assignee can be changed.
+- Comments can be added.
+- Search works.
+- Status filter works.
+- Valid status transitions work.
+- Invalid status transitions are rejected **by the backend**.
+- Data survives application restart.
+- Backend validation works.
+- UI shows meaningful errors.
+- State-machine integration tests pass.
+- No secrets are committed.
+
+---
+
+## 6. Things that are unclear
+
+**State machine (highest risk)**  
+The assignment gives a **happy path** and two cancel edges, plus three **reopen** examples. It does **not** say “this graph is complete.” So these are unspecified unless you decide they are “anything not drawn is illegal”:
+
+- Skip ahead: `OPEN → RESOLVED`, `OPEN → CLOSED`, `IN_PROGRESS → CLOSED`.
+- `RESOLVED → CANCELLED`.
+- Any move out of `CLOSED` or `CANCELLED` other than the reopen examples (e.g. `CLOSED → CANCELLED`).
+- Same-status updates: `OPEN → OPEN`.
+- Initial status on **create** (strongly implied `OPEN`, not stated).
+- Whether status can go backwards along the main line (`IN_PROGRESS → OPEN`, `RESOLVED → IN_PROGRESS`, `CLOSED → RESOLVED`).
+
+**Ticket model**
+- Fields on create vs on update (only update lists title, description, priority, assignee).
+- Identifiers, timestamps, author of comments.
+- What “keyword” search covers (title only vs title+description+comments).
+- List: order, pagination, max page size.
+- Filter: single status vs many; combined search + filter.
+
+**Update vs transition**
+- Can the same update API change title and status together?
+- If status is illegal, are other field changes applied or is the whole request rejected?
+
+**People and auth**
+- Login, roles, who may assign or cancel — not mentioned. “Assignee” has no type.
+
+**Comments**
+- Fields, edit/delete, whether comments are allowed on `CLOSED`/`CANCELLED`.
+
+**Errors**
+- “Meaningful” is not a schema (field errors vs one message, localization).
+
+**Frontend**
+- React vs Next vs “equivalent” is open.
+- Whether the UI should hide illegal transitions is not required (backend rejection is).
+
+**Persistence**
+- Schema, migrations, which DB in CI vs local.
+
+---
+
+## 7. Assumptions we should **not** make without justification
+
+Do not treat these as requirements just to make the spec look complete:
+
+- Create always sets `status = OPEN` (likely, **not written**).
+- The five arrows are the **only** legal transitions (reasonable FSM reading, **not written as “closed set”**).
+- Skip-level transitions are allowed because they were not in the invalid examples.
+- Reopen is only those three examples; other reverse moves might be OK (the examples are not a full illegal matrix).
+- Users, authentication, or RBAC.
+- Priority enum (`LOW`/`MEDIUM`/`HIGH`) or numeric priority.
+- Assignee is a registered user id.
+- Pagination, sort, or full-text search engine.
+- Email, attachments, tags, SLA, audit log, soft delete.
+- Status changes belong on `PATCH /tickets/{id}` vs `POST .../status`.
+- UI must disable illegal statuses (assignment only requires backend rejection + meaningful UI errors).
+- H2 for tests and Postgres for “real” (common, **not specified**).
+- Our Cursor HTTP table (201, 409, RFC 7807) unless we **record that as a project decision**.
+
+---
+
+## State machine: what the backend must do vs what is still open
+
+**Must (explicit)**  
+Reject illegal transitions in the **backend**. Valid listed transitions must work. Integration tests must cover the machine. UI-only enforcement is not enough.
+
+**Safe reading, still needs a written decision**  
+If the arrows are the **complete** allowed set, then every other pair is invalid, including skips and all reopens. That matches “invalid transitions must be rejected” plus the examples. It is the usual way to read a state machine, but it is an **interpretation**.
+
+**Do not implement as if decided**
+- Guards (e.g. assignee required before `IN_PROGRESS`).
+- Who is allowed to cancel or close.
+- Whether `CANCELLED` and `CLOSED` are terminal except as in the examples.
+
+A compact matrix **only from the text** (blank = not specified):
+
+| From \ To | OPEN | IN_PROGRESS | RESOLVED | CLOSED | CANCELLED |
+|-----------|------|-------------|----------|--------|-----------|
+| OPEN | ? | allowed | ? | ? | allowed |
+| IN_PROGRESS | ? | ? | allowed | ? | allowed |
+| RESOLVED | **invalid (example)** | ? | ? | allowed | ? |
+| CLOSED | **invalid (example)** | ? | ? | ? | ? |
+| CANCELLED | **invalid (example)** | ? | ? | ? | ? |
+
+---
+
+## Missing or ambiguous (gaps only — not new requirements)
+
+- Complete transition matrix (or an explicit sentence: “only listed transitions are allowed”).
+- Status at creation.
+- Ticket and comment field list and requiredness.
+- Search field set and matching rules.
+- Authn/authz, if any.
+- Priority and assignee definitions.
+- API error contract (beyond “meaningful”).
+- Whether field updates are blocked in terminal statuses.
+- Which frontend and which database for which environment.
+
+I would next **write down the closed transition matrix and create-status** as a decision (when you want docs), still without code. I am not filling those cells in as product requirements here.
+
+---
+
+_**User**_
+
+Let's continue the Support Ticket Management System from the requirements analysis already done.
+
+This is a requirements-decision session only. We are not implementing anything yet.
+
+First, inspect the existing repository and the requirements analysis/spec files that are already present. Use those as the source of truth instead of making assumptions from scratch.
+
+I want to resolve the important ambiguities before we create the detailed specifications.
+
+One decision I want to make explicit for this project is the ticket state machine.
+
+The allowed transitions are ONLY:
+
+OPEN -> IN_PROGRESS
+IN_PROGRESS -> RESOLVED
+RESOLVED -> CLOSED
+OPEN -> CANCELLED
+IN_PROGRESS -> CANCELLED
+
+Every other status-to-status transition must be considered invalid and rejected by the backend.
+
+For example:
+
+OPEN -> RESOLVED
+OPEN -> CLOSED
+IN_PROGRESS -> CLOSED
+IN_PROGRESS -> OPEN
+RESOLVED -> OPEN
+RESOLVED -> CANCELLED
+CLOSED -> OPEN
+CANCELLED -> OPEN
+
+must all be rejected.
+
+A newly created ticket will start with OPEN status. The client should not be allowed to choose an initial status during ticket creation.
+
+Treat both of these as explicit project decisions/interpretations, not as text that was directly stated in the original assignment.
+
+Before changing anything, review these decisions against the original assignment and tell me whether you see any conflict.
+
+Then identify the remaining decisions we genuinely need before designing:
+
+- architecture
+- data model
+- REST API
+- frontend flow
+- testing strategy
+
+In particular, point out decisions needed around:
+
+- ticket fields and which are required
+- priority representation
+- assignee representation
+- comment fields
+- search behaviour
+- status filtering
+- update behaviour versus status transitions
+- validation rules
+- API error behaviour
+- persistence/database choice
+- frontend technology
+
+For each item, distinguish between:
+
+1. Explicitly required by the assignment
+2. A reasonable implementation decision
+3. Still genuinely ambiguous
+
+Do not turn common industry practices into requirements.
+
+Do not introduce authentication, roles, notifications, attachments, SLA, pagination, audit logging, or other features unless the existing requirements actually require them.
+
+Don't create or modify any files.
+
+Don't write application code.
+
+At the end, give me a concise list of decisions that need my approval before we move to the architecture specification.
+
+---
+
+_**Agent (auto-smart)**_
+
+> Auto routed to Grok 4.6
+
+
+
+_**Agent (auto-smart)**_
+
+<think><details><summary>Thought Process</summary>
+Beginning the requirements-decision session. I will inspect the existing repository and requirements files to identify ambiguities and unresolved design questions.
+</details></think>
+
+_**Agent (auto-smart)**_
+
+I'll inspect the repo and any existing spec/analysis files, then check your state-machine decisions against the assignment and list only the decisions we still need.
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="search" data-tool-name="glob_file_search"><details>
+<summary>Tool use: **glob_file_search** • Searched codebase "" • **11** results in **1** directory</summary>
+
+Directory: **`d:\PROJECT\support-ticket-management-system`** (11 files)
+
+| File |
+|------|
+| `../.cursor\rules\documentation.md` |
+| `../.cursorindexingignore` |
+| `../.cursor\rules\api-standards.md` |
+| `../.cursor\rules\testing.md` |
+| `../.specstory/history/2026-09-22_06-20-16Z-repository-file-visibility.md` |
+| `../.specstory/cli/config.toml` |
+| `../README.md` |
+| `../.specstory\history\2026-09-22_06-20-16Z-repository-file-visibility.md` |
+| `../.specstory/.project.json` |
+| `../.cursor\rules\java-springboot.md` |
+| `../.specstory/.gitignore` |
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.{md,mdc,txt,yml,yaml,json}",
+  "path": "d:\\PROJECT\\support-ticket-management-system",
+  "pattern": "OPEN|IN_PROGRESS|state machine|acceptance"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "d:\\PROJECT\\support-ticket-management-system",
+  "pattern": "OPEN|IN_PROGRESS|state machine|acceptance",
+  "topFiles": [
+    {
+      "matchCount": 46,
+      "uri": ".specstory\\history\\2026-09-22_06-20-16Z-repository-file-visibility.md"
+    }
+  ],
+  "totalFiles": 1,
+  "totalMatches": 46
+}
+```
+Status: **completed**
+
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<think><details><summary>Thought Process</summary>
+Checking the repository structure for existing documentation, commands, and rules.
+
+No spec files or decisions exist beyond the README, cursor rules, and chat history. The source of truth is the original assignment, the requirements analysis, and the user's new decisions.
+
+Distinguishing project conventions from assignment requirements. The API standard for 409 conflicts is a project convention, not an explicit requirement. State-machine testing covers both allowed and rejected transitions. Authentication, pagination, and other features will be excluded unless explicitly required. Each remaining topic will be classified as either explicitly required, a reasonable implementation decision, or still ambiguous. The state machine conflict check is the first topic under review.
+
+The user clarified that only five transitions are valid. All other transitions, including same-status OPEN→OPEN no-ops, are invalid. The user also rejected skip and reopen actions. The assignment never specified that create starts as OPEN or that clients cannot set the initial status; these are additive interpretations rather than contradictions.
+</details></think>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2** • Read file: d:\PROJECT\support-ticket-management-system\README.md</summary>
+
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2** • Read file: d:\PROJECT\support-ticket-management-system\.cursor\rules\api-standards.md</summary>
+
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2** • Read file: d:\PROJECT\support-ticket-management-system\.cursor\rules\testing.md</summary>
+
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<tool-use data-tool-type="search" data-tool-name="glob_file_search"><details>
+<summary>Tool use: **glob_file_search** • Searched codebase "" • **0** results in **1** directory</summary>
+
+Directory: **`d:\PROJECT\support-ticket-management-system`** (0 files)
+</details></tool-use>
+
+_**Agent (auto-smart)**_
+
+<think><details><summary>Thought Process</summary>
+The repository contains no existing spec files or commands. I cannot resolve ambiguities against source of truth without these artifacts.
+
+No existing spec files exist. The source of truth is the README, Cursor rules, and this session's decisions.
+
+Cursor 401/403 errors will not be treated as authentication requirements. The testing rule's "blank subject" is not a product field name; the assignment specifies "title".
+
+Three architecture decisions need approval:
+
+- Monolith versus separate front and back ends
+- Package structure for implementation
+- REST versioning strategy
+
+The data model needs clarification on ticket fields, comments as an entity, priority types, and assignee types.
+</details></think>
+
+_**Agent (auto-smart)**_
+
+**Repo as source of truth:** there is still **no** `docs/`, no architecture/API spec, and no application code. What exists is:
+
+- `README.md` — title only  
+- `.cursor/rules/` — Java/Spring, testing, API, documentation **conventions** (not the assignment)  
+- Chat/history — original assignment + the earlier requirements analysis  
+
+So the assignment text and that analysis remain the product source of truth. Cursor rules bind **how** we build (thin controllers, DTOs, 409 for illegal transitions, test every transition). They must not add features the assignment does not require (including auth, even though the API rule mentions 401/403).
+
+---
+
+## Your state-machine decisions vs the assignment
+
+**No conflict.** They **close interpretations** the analysis already flagged; they do not contradict written requirements.
+
+| Decision | vs assignment |
+|----------|----------------|
+| **Only those five edges are legal** | Assignment **listed those five** and said invalid transitions must be rejected. It did **not** say the graph is closed, but it never allowed skips or reopens. Treating unlisted pairs as illegal is consistent with the arrows and with the examples (`CLOSED/RESOLVED/CANCELLED → OPEN`). |
+| **Your extra illegal examples** (`OPEN → RESOLVED/CLOSED`, `IN_PROGRESS → CLOSED/OPEN`, `RESOLVED → CANCELLED`, etc.) | Compatible. They were **unspecified**, not permitted. |
+| **Create starts as `OPEN`; client cannot set initial status** | **Not in the assignment.** Compatible (machine starts at `OPEN`; create never mentioned status). This is an **explicit project interpretation**, as you said. |
+
+Implied by “every other status-to-status transition is invalid” (confirm if you care): **same-status** (`OPEN → OPEN`, etc.) is also rejected. Assignment is silent; your wording covers it.
+
+Nothing in the assignment requires reopen, skip-ahead, or client-chosen create status, so you are not overriding a written rule.
+
+---
+
+## Remaining decisions (by area)
+
+Legend: **(1)** assignment **(2)** reasonable implementation choice **(3)** still ambiguous — do not treat (2) as required.
+
+### Architecture
+
+| Topic | Classification |
+|--------|----------------|
+| Java 21, Spring Boot, REST backend | **(1)** |
+| Some web UI (React / Next / equivalent) | **(1)** |
+| Backend owns the state machine | **(1)** |
+| Separate `frontend/` + `backend/` vs a single repo layout | **(2)** |
+| `/api/v1/...` versioning | **(2)** (Cursor API rule; assignment only says REST) |
+| Modular monolith vs extra services | **(2)** — assignment does not require microservices |
+| How UI is served (dev proxy vs Spring static vs separate host) | **(2)** / **(3)** until a stack is chosen |
+
+### Data model
+
+| Topic | Classification |
+|--------|----------------|
+| Tickets persist in a DB | **(1)** |
+| Tickets have **title, description, priority, assignee** (named on **update**) | **(1)** for those names on update; **(3)** whether all exist at create |
+| **Status** with the five values and your closed matrix | **(1)** statuses/arrows + **your decision** for closed set and create=`OPEN` |
+| **Comments** exist and can be added | **(1)** |
+| Id, created/updated timestamps | **(2)** if we persist tickets; assignment does not name them |
+| Comment as child rows vs blob | **(2)** |
+| Extra columns (category, tags, …) | **Do not add** — not required |
+
+### REST API
+
+| Topic | Classification |
+|--------|----------------|
+| REST for the capabilities (create, list, get, update, comments, search, filter, persist) | **(1)** behaviour, not paths |
+| Concrete paths, query params, DTO field names | **(2)** / **(3)** until designed |
+| Separate **field update** vs **status transition** operations | **(3)** — assignment lists both “update fields” and “transitions” but not one vs two endpoints |
+| 409 + Problem Details for illegal transitions | **(2)** from Cursor rules, not assignment |
+| DELETE ticket, bulk ops | **Not required** |
+
+### Frontend flow
+
+| Topic | Classification |
+|--------|----------------|
+| Create, list, detail, update fields, assignee, comments, search, status filter, meaningful errors | **(1)** |
+| React vs Next vs other | **(3)** assignment allows any of these |
+| Disabling illegal statuses in the UI | **(2)** UX only; **backend rejection is (1)** |
+| Screens/routing (list+panel vs separate pages) | **(2)** |
+
+### Testing
+
+| Topic | Classification |
+|--------|----------------|
+| State-machine **integration** tests pass | **(1)** |
+| Every allowed **and** rejected transition (closed matrix) | **(2)** aligns with Cursor testing rule + your closed graph; assignment does not say “every pair” |
+| Unit tests for domain + API tests for HTTP/DB | **(2)** Cursor testing rule |
+| Test DB (H2 vs Testcontainers Postgres) | **(2)** / **(3)** |
+
+---
+
+## Topics you asked about
+
+**Ticket fields and requiredness**  
+- **(1)** Update can change title, description, priority, assignee. Create/list/detail exist; **field lists for create/detail are not given**.  
+- **(3)** What is required on create; whether description may be empty; whether title can be blank; whether those four can be updated in `CLOSED`/`CANCELLED`.  
+- **(2)** Server-generated id and `OPEN` status (your create decision).
+
+**Priority representation**  
+- **(1)** Tickets have a priority that can be updated.  
+- **(3)** Enum vs number vs free text; allowed values. Do **not** assume `LOW/MEDIUM/HIGH`.
+
+**Assignee representation**  
+- **(1)** Assignee can be changed.  
+- **(3)** String name vs opaque id; required vs optional; whether it must refer to a stored user. **Do not** add a user directory unless you decide assignee needs it.
+
+**Comment fields**  
+- **(1)** Comments can be added; they show in some “ticket details” sense (implied by view details + add comments, not a field list).  
+- **(3)** Body required? author? timestamp? edit/delete? comments on terminal tickets?  
+- **(2)** Persist as related records if we need more than one comment per ticket (assignment says “comments” plural).
+
+**Search**  
+- **(1)** Keyword search exists.  
+- **(3)** Which fields; case; partial vs exact; search + filter together.  
+- **(2)** `ILIKE` on title (and maybe description) — common, **not required**. Do not assume comments are in search.
+
+**Status filtering**  
+- **(1)** Filter by status.  
+- **(3)** One status vs many; invalid status query → 400 vs empty list.  
+- **(2)** Query param on list — typical REST, not specified.
+
+**Update vs status transitions**  
+- **(1)** Field updates and legal transitions both work; illegal transitions rejected by **backend**.  
+- **(3)** Same request may not change status and fields; what happens if it does; whether field updates are allowed when status is `CLOSED`/`CANCELLED`; whether omitted fields mean “leave unchanged”.  
+- Your create rule already: **no status on create**. Transition API is still open.
+
+**Validation**  
+- **(1)** Backend validates; illegal transitions rejected.  
+- **(3)** Required/length/format for title, description, comment, priority, assignee.  
+- **(2)** Jakarta Validation on DTOs + service for the machine — Cursor rules, not assignment.
+
+**API error behaviour**  
+- **(1)** UI shows meaningful errors ⇒ API must be usable for that.  
+- **(3)** Exact payload.  
+- **(2)** RFC 7807, 400 validation, 404 unknown ticket, 409 illegal transition — **project rules**, not assignment. **Do not** take 401/403 as “we must add login”.
+
+**Persistence / database**  
+- **(1)** PostgreSQL/H2; data survives restart.  
+- **(3)** Which engine for local vs “real”; both at once or one.  
+- **(2)** H2 for tests, Postgres for running app — common, **not required**.
+
+**Frontend technology**  
+- **(1)** React, Next.js, **or equivalent**.  
+- **(3)** Which one. Choosing React (Vite) vs Next is **(2)** once you pick.
+
+---
+
+## Out of scope unless you explicitly add them
+
+Authentication, roles, notifications, attachments, SLA, pagination, audit logging, reopen, skip-level transitions, client-chosen create status — **not** required by the assignment. Your two decisions **forbid** the last two.
+
+---
+
+## Decisions that need your approval before architecture spec
+
+1. **Confirm closed state machine** — only the five edges; all other pairs (including same-status) rejected by backend.  
+2. **Confirm create** — always `OPEN`; client cannot send status.  
+3. **Create payload** — which of title / description / priority / assignee are present and which are required.  
+4. **Priority** — type and allowed values (or “opaque string”).  
+5. **Assignee** — type (string vs id) and optional vs required.  
+6. **Comments** — minimum fields (e.g. body only vs body + display name) and whether add is allowed in `CLOSED`/`CANCELLED`.  
+7. **Search** — which fields; whether it combines with status filter.  
+8. **Status filter** — single value vs multiple; bad value behaviour.  
+9. **Updates vs transitions** — one resource update vs dedicated transition; may status appear on the field-update API; field edits after `CLOSED`/`CANCELLED`.  
+10. **Validation floor** — only “non-blank title” etc. you actually want (do not invent a large schema).  
+11. **Error contract** — adopt Cursor API rule (400 / 404 / 409 + one error shape) or specify something else.  
+12. **Database** — Postgres, H2, or which for app vs tests.  
+13. **Frontend** — React, Next.js, or a named equivalent.  
+14. **Repo shape** — e.g. `backend` + `frontend` in one repo (implementation layout, not a new product feature).
+
+Items **1–2** are your current interpretations; a yes/no lock is enough. Items **3–13** are still **(3)** or unchosen **(2)**. I would not start the architecture spec until **1–2, 3, 9, 12, 13** are decided; **4–8, 10–11, 14** can be decided in the same pass to avoid rework.
+
+No files were created or changed.
+
+---
+
+_**User**_
+
+Good analysis. Let's lock the following decisions so we can move forward without overengineering the application.
+
+1. State machine
+
+Confirm that only these transitions are allowed:
+
+OPEN -> IN_PROGRESS
+IN_PROGRESS -> RESOLVED
+RESOLVED -> CLOSED
+OPEN -> CANCELLED
+IN_PROGRESS -> CANCELLED
+
+Every other transition is invalid.
+
+A same-status transition is also invalid when requested as a status transition.
+
+2. Ticket creation
+
+Create requires:
+- title
+- description
+- priority
+
+Assignee is optional.
+
+Status is not accepted from the client and is always OPEN when the ticket is created.
+
+3. Priority
+
+Use a simple enum:
+LOW, MEDIUM, HIGH
+
+This is a project design decision, not an original assignment requirement.
+
+4. Assignee
+
+For this assignment, keep assignee as an optional string value.
+
+Do NOT create authentication or a user-management system.
+
+5. Comments
+
+A comment contains:
+- id
+- ticket id
+- body
+- created timestamp
+
+Comment body is required and must not be blank.
+
+No edit/delete comment functionality is required.
+
+Comments can be added while the ticket exists, including CLOSED and CANCELLED tickets. Do not add extra restrictions that aren't required.
+
+6. Search
+
+Keyword search should be case-insensitive and match:
+- ticket title
+- ticket description
+
+Search and status filtering should work together.
+
+Do not search comments unless we later identify a requirement for it.
+
+7. Status filter
+
+Use a single status query parameter.
+
+An invalid status value should produce a backend validation error rather than silently returning an empty result.
+
+8. Updates vs status transitions
+
+Keep normal ticket field updates separate from status transitions.
+
+The normal update operation can change:
+- title
+- description
+- priority
+- assignee
+
+It must not directly change status.
+
+Use a dedicated status-transition operation for changing status.
+
+If an invalid transition is requested, the backend rejects it and no ticket state change occurs.
+
+Field updates remain allowed even for CLOSED or CANCELLED tickets because the assignment does not require those states to make other fields immutable.
+
+9. Validation
+
+Use a small, practical validation baseline:
+
+- title: required and non-blank
+- description: required and non-blank
+- priority: required and one of LOW/MEDIUM/HIGH
+- assignee: optional
+- comment body: required and non-blank
+
+Do not invent complicated length limits unless technically necessary.
+
+10. API errors
+
+Use the API conventions already defined in our project rules:
+
+- 400 for invalid request/validation
+- 404 for a ticket that doesn't exist
+- 409 for an invalid status transition
+
+Use one consistent JSON error structure so the frontend can display meaningful messages.
+
+Do not introduce authentication-related 401/403 behaviour because authentication is not part of this application.
+
+11. Database
+
+Use PostgreSQL as the main application database.
+
+Use H2 for automated tests where practical.
+
+The application data must survive an application restart.
+
+Keep the database configuration externalized through environment/configuration rather than committing secrets.
+
+12. Frontend
+
+Use React with Vite.
+
+Keep the frontend intentionally simple and focused on the acceptance criteria.
+
+13. Repository structure
+
+Use a single repository with:
+
+backend/
+frontend/
+spec/
+docs/
+
+Keep the backend and frontend independently runnable.
+
+Before writing or changing any files, review these decisions for contradictions or unnecessary complexity.
+
+If you find a problem, tell me first.
+
+Otherwise, summarize the final agreed project decisions in a concise checklist.
+
+Do not implement anything yet.
