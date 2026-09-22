@@ -19,24 +19,27 @@ Working architecture for a small assignment. This document describes how the sys
 
 ## 2. Architecture overview
 
-The system is a **modular monolith** plus a **single-page app**: two independently runnable processes in one git repository.
+The system is a **modular monolith** with a **React + Vite SPA**. For the **final demo**, Spring Boot serves the production frontend build as static resources on **one port (9000)** so the evaluator opens a single URL.
 
 ```
-Browser (React + Vite SPA)
-        │  HTTP JSON (REST)
-        ▼
-Spring Boot API (Java 21)
-        │
-        ▼
+Browser
+   │  http://localhost:9000  (SPA + /api/v1)
+   ▼
+Spring Boot (Java 21)  — REST API + static SPA assets
+   │
+   ▼
 PostgreSQL (application persistence)
 
 Tests: H2 where practical (backend integration)
+
+Optional local UI iteration only: Vite on 9001 with /api proxy → 9000
+(not the evaluator demo)
 ```
 
 | Part | Role |
 |------|------|
-| **Frontend** | Present tickets, collect input, call the API, display errors. May hide illegal status options as UX only. |
-| **Backend** | Validation, persistence, and the **only** authority for status transitions and other business rules. |
+| **Frontend** | Present tickets, collect input, call the API with **relative** `/api/v1/...` paths, display errors. May hide illegal status options as UX only. |
+| **Backend** | Validation, persistence, SPA static serving, and the **only** authority for status transitions and other business rules. |
 | **Database** | Durable storage; data must survive application restart. |
 
 No microservices, message buses, caches, API gateways, or CQRS. Complexity stays proportional to the assignment.
@@ -63,7 +66,7 @@ Classic Spring layering. Controllers stay thin; business rules live below HTTP.
 
 - Create ticket (server sets status to `OPEN`; client does not choose initial status)
 - List with optional keyword and status filter
-- Get by id (ticket plus comments)
+- Get by id (ticket fields; comments via dedicated list)
 - Update fields (title, description, priority, assignee — not status)
 - Transition status (backend-enforced matrix)
 - Add comment
@@ -86,11 +89,12 @@ frontend/src/
   types/        mirrors API DTOs
 ```
 
-**Screens implied by acceptance criteria (details deferred to UI-flow spec):**
+**Screens (details in UI-flow spec):**
 
-1. **List** — keyword + status filter, results, navigation to detail/create  
-2. **Create** — ticket fields without a status picker  
-3. **Detail** — fields, assignee, comments, status action, API errors  
+1. **Dashboard** — summary counts from existing ticket list data (no new stats API)  
+2. **List** — keyword + status filter, results, navigation to detail/create  
+3. **Create** — ticket fields without a status picker  
+4. **Detail** — fields, assignee, comments, status action, API errors  
 
 The UI may offer only legal next statuses for usability. Rejection of illegal transitions remains a backend responsibility (`409` or equivalent per API contract).
 
@@ -106,12 +110,12 @@ Communication is **JSON over HTTP REST**, with versioned resource paths under `/
 |------------|----------------------|
 | Create | `POST` tickets → success as create (`201` + `Location` per API standards) |
 | List / search / filter | `GET` tickets with optional keyword and status |
-| Details | `GET` ticket by id, including comments |
+| Details | `GET` ticket by id; comments via dedicated list endpoint |
 | Field update | Partial update of title, description, priority, assignee — **not** status |
 | Status change | Dedicated status operation, separate from field update |
 | Comment | Create comment nested under a ticket |
 
-**Dev wiring:** Vite proxy to the backend is preferred so the frontend does not hard-code credentials or rely on permissive CORS for local development. Production serving (separate hosts vs reverse proxy) is an ops choice, not a product feature.
+**Final demo wiring:** Spring Boot serves the Vite production build from `classpath:/static` on port **9000**. The SPA calls relative `/api/v1/...` paths (same origin). Optional Vite-on-9001 with `/api` proxy is for UI-only iteration, not the evaluator demo.
 
 ---
 
@@ -212,12 +216,12 @@ Detailed cases belong in a later test-strategy document; this architecture only 
 ## 11. Repository structure
 
 ```
-backend/          Spring Boot application (independently runnable)
-frontend/         React + Vite application (independently runnable)
-spec/             product and architecture specs (this file and later specs)
-docs/             durable decision records when needed
-.cursor/rules/    build conventions (layering, API, testing, docs)
-README.md         how to run; pointers to docs — avoid duplicating HTTP tables
+backend/          Spring Boot application (serves API + SPA on port 9000 for demo)
+frontend/         React + Vite sources (production build embedded into backend)
+spec/             product and architecture specs
+docs/             durable decision records, manual tests, AI evidence
+.cursor/rules/    build conventions (layering, API, testing, docs, reviews)
+README.md         how to run the single-port portal; pointers to docs
 ```
 
 Chat history is not the long-term source of truth. Specs and decisions in the repo are.
@@ -268,23 +272,22 @@ Do **not** add the following unless the assignment is explicitly extended:
 | **`PATCH /tickets/{id}/status` (or equivalent)** | **API design decision — finalize in the API contract** |
 | Embedding comments in ticket detail `GET` | Likely API design choice; finalize in API contract |
 | Flyway (or other migration tool) | **Implementation decision, not a product requirement** |
-| Vite dev proxy | Local developer experience |
+| Vite production build embedded into Spring Boot static resources; SPA fallback controller | Final single-port demo on 9000 |
+| Optional Vite `:9001` `/api` proxy | Local UI iteration only |
 | RFC 7807 Problem Details, `409` for illegal transitions | Project API standards; adopt unless API contract says otherwise |
 | Spring Data JPA | Persistence technology choice within the stack |
 
 ---
 
-## Assumptions still open for later specs
+## Resolved in later specs
 
-These are intentionally **not** resolved here:
+The following were left open at architecture time and are now settled in dedicated specs (do not re-open casually):
 
-- Exact REST paths, query parameters, and DTO fields (API contract)  
-- Priority representation and allowed values (data model)  
-- Assignee representation (e.g. free-text string) and optionality (data model)  
-- Comment minimum fields and whether comments are allowed in terminal statuses  
-- Keyword search field set and combination with status filter  
-- Whether field updates remain allowed after `CLOSED` / `CANCELLED`  
-- Concrete validation floors (lengths, blank rules) beyond “backend validates”  
-- Exact UI routing and component breakdown (UI flow)  
-- Detailed test cases and tooling for frontend verification (test strategy)
-`)
+| Topic | Settled in |
+|-------|------------|
+| REST paths, DTOs, errors | `spec/api-contract.md` |
+| Priority, assignee, comments, timestamps | `spec/data-model.md` |
+| Status matrix and enforcement | `spec/state-machine.md` |
+| Screens and navigation (incl. dashboard) | `spec/ui-flow.md` |
+| Automated + manual test coverage | `spec/test-strategy.md`, `docs/manual-test-cases.md` |
+| Product requirements summary | `spec/requirements.md` |

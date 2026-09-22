@@ -60,11 +60,54 @@ public final class Ticket {
         );
     }
 
+    public static Ticket reconstitute(
+            UUID id,
+            String title,
+            String description,
+            Priority priority,
+            String assignee,
+            TicketStatus status,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+        return new Ticket(id, title, description, priority, assignee, status, createdAt, updatedAt);
+    }
+
     public void transitionTo(TicketStatus targetStatus, Clock clock) {
         Objects.requireNonNull(targetStatus, "targetStatus");
         Objects.requireNonNull(clock, "clock");
         TicketStatusTransitionPolicy.assertCanTransition(this.status, targetStatus);
         this.status = targetStatus;
+        this.updatedAt = clock.instant();
+    }
+
+    public void updateFields(
+            String title,
+            boolean titlePresent,
+            String description,
+            boolean descriptionPresent,
+            Priority priority,
+            boolean priorityPresent,
+            String assignee,
+            boolean assigneePresent,
+            Clock clock
+    ) {
+        Objects.requireNonNull(clock, "clock");
+        if (!titlePresent && !descriptionPresent && !priorityPresent && !assigneePresent) {
+            throw new IllegalArgumentException("At least one of title, description, priority, or assignee must be provided");
+        }
+        if (titlePresent) {
+            this.title = requireNonBlank(title, "title");
+        }
+        if (descriptionPresent) {
+            this.description = requireNonBlank(description, "description");
+        }
+        if (priorityPresent) {
+            this.priority = Objects.requireNonNull(priority, "priority");
+        }
+        if (assigneePresent) {
+            this.assignee = normalizeAssignee(assignee);
+        }
         this.updatedAt = clock.instant();
     }
 

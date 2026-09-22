@@ -15,6 +15,9 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
   h2:
     console:
       enabled: false

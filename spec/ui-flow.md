@@ -10,9 +10,9 @@ This document is **not** visual design, component library choice, CSS, applicati
 
 **Purpose:** Specify the minimal UI required to create, list, search/filter, view, update, comment on, and transition tickets, while showing meaningful API errors.
 
-**In scope:** three pages (list, create, detail), status-transition UX aligned to the closed matrix, loading/empty/error behaviour, and API action mapping.
+**In scope:** dashboard, ticket list, create, and detail pages; status-transition UX aligned to the closed matrix; loading/empty/error behaviour; API action mapping; single-origin portal served by Spring Boot on port 9000.
 
-**Out of scope:** authentication, users/roles, notifications, attachments, dashboards, pagination, advanced filters, comment search, audit history, and any screen beyond the three below.
+**Out of scope:** authentication, users/roles, notifications, attachments, analytics APIs, pagination, advanced filters, comment search, audit history, and screens beyond those listed below.
 
 ---
 
@@ -22,31 +22,44 @@ This document is **not** visual design, component library choice, CSS, applicati
 
 | Route | Page | Purpose |
 |-------|------|---------|
-| `/` | Ticket List | List, search, filter; entry to create and detail |
+| `/` or `/dashboard` | Dashboard | Queue summary from `GET /api/v1/tickets` (client-side counts; no stats API) |
+| `/tickets` | Ticket List | List, search, filter; entry to create and detail |
 | `/tickets/new` | Create Ticket | Create form |
 | `/tickets/:ticketId` | Ticket Details | View/edit fields, comments, status actions |
 
-No other product routes. Deep-linking to an unknown `ticketId` uses the detail page’s not-found behaviour (§7).
+No other product routes. Deep-linking to an unknown `ticketId` uses the detail page’s not-found behaviour (§8).
 
 ### 2.2 Navigation actions
 
 | From | Action | To |
 |------|--------|----|
+| Dashboard | “View tickets” / recent item | List (`/tickets`) or Detail |
+| Dashboard | “Create ticket” | Create (`/tickets/new`) |
 | List | Activate a ticket row/item | Detail (`/tickets/:ticketId`) |
 | List | “Create ticket” control | Create (`/tickets/new`) |
-| Create | Cancel / “Back to list” | List (`/`) |
+| Create | Cancel / “Back to list” | List (`/tickets`) |
 | Create | Successful create | Detail of the new ticket (`/tickets/{id}`) |
-| Detail | “Back to list” | List (`/`) |
+| Detail | “Back to list” | List (`/tickets`) |
 
 No login redirect. No role-based route guards.
 
 ---
 
-## 3. Ticket List
+## 3. Dashboard
 
-**Route:** `/`
+**Route:** `/` (and `/dashboard`)
 
-### 3.1 Display
+- Load tickets with `GET /api/v1/tickets` and compute status counts in the UI.
+- Show quick actions to list and create; show a short recent-ticket list.
+- Do **not** invent `/api/v1/stats` or other aggregate endpoints.
+
+---
+
+## 4. Ticket List
+
+**Route:** `/tickets`
+
+### 4.1 Display
 
 Show each ticket’s identifying summary for scanning and navigation. Minimum fields:
 
@@ -59,7 +72,7 @@ Optional display of `createdAt` is allowed because the list response already inc
 
 Each row/item navigates to Ticket Details.
 
-### 3.2 Search and filter
+### 4.2 Search and filter
 
 | Control | Behaviour |
 |---------|-----------|
@@ -70,18 +83,18 @@ Each row/item navigates to Ticket Details.
 
 Trigger strategy is a UI design choice: explicit Apply/Search, or change with a short debounce. Do not search comment bodies.
 
-### 3.3 Other actions
+### 4.3 Other actions
 
 - Control to navigate to Create Ticket.
 - Re-fetching the list when returning from create/detail is acceptable; no push/WebSocket updates.
 
 ---
 
-## 4. Create Ticket
+## 5. Create Ticket
 
 **Route:** `/tickets/new`
 
-### 4.1 Form fields
+### 5.1 Form fields
 
 | Field | UI control | Required | Notes |
 |-------|------------|----------|-------|
@@ -91,11 +104,11 @@ Trigger strategy is a UI design choice: explicit Apply/Search, or change with a 
 | Assignee | text | no | Optional free-text; blank → omit or send `null` |
 | **Status** | **none** | — | **Do not render a status field or picker** |
 
-### 4.2 OPEN indication
+### 5.2 OPEN indication
 
 Clearly state that a newly created ticket **starts as `OPEN`** (server-assigned). Example: “New tickets are created with status OPEN.” Informational only; the client must not send `status`.
 
-### 4.3 Submit behaviour
+### 5.3 Submit behaviour
 
 1. Optional client-side blank checks on title/description; require a priority selection.
 2. Call `POST /api/v1/tickets` with `title`, `description`, `priority`, and optional `assignee` only.
@@ -105,26 +118,26 @@ Clearly state that a newly created ticket **starts as `OPEN`** (server-assigned)
 
 ---
 
-## 5. Ticket Details
+## 6. Ticket Details
 
 **Route:** `/tickets/:ticketId`
 
-### 5.1 Load
+### 6.1 Load
 
 On enter:
 
 1. `GET /api/v1/tickets/{ticketId}` — ticket fields only (API contract does **not** embed comments).
 2. `GET /api/v1/tickets/{ticketId}/comments` — comments.
 
-If ticket GET returns `404`, show not-found (§7); skip or ignore comments fetch for that case.
+If ticket GET returns `404`, show not-found (§8); skip or ignore comments fetch for that case.
 
-### 5.2 Display
+### 6.2 Display
 
 Show all ticket fields from `TicketResponse`: `id`, `title`, `description`, `priority`, `assignee`, `status`, `createdAt`, `updatedAt`.
 
 Show comments oldest-first (`createdAt` ascending). Empty list → “No comments yet” (not an error).
 
-### 5.3 Field update (not status)
+### 6.3 Field update (not status)
 
 Editable: `title`, `description`, `priority`, `assignee` only.
 
@@ -135,11 +148,11 @@ Editable: `title`, `description`, `priority`, `assignee` only.
 | Submit | `PATCH /api/v1/tickets/{ticketId}` with only changed allowed fields |
 | Clear assignee | Send `"assignee": null` (or map blank to `null` per API) |
 | Success | Replace displayed ticket with response; comments unchanged unless separately refreshed |
-| Failure | Show errors (§7); keep last successful data visible |
+| Failure | Show errors (§8); keep last successful data visible |
 
 Never include `status`, `id`, `createdAt`, or `updatedAt` in the field PATCH body.
 
-### 5.4 Add comment
+### 6.4 Add comment
 
 - Available for **any** status, including `CLOSED` and `CANCELLED`.
 - Input: `body` only.
@@ -149,11 +162,11 @@ Never include `status`, `id`, `createdAt`, or `updatedAt` in the field PATCH bod
 
 ---
 
-## 6. Status Transition UI
+## 7. Status Transition UI
 
 Status actions are **separate** from field editing.
 
-### 6.1 Valid next-status actions (UX only)
+### 7.1 Valid next-status actions (UX only)
 
 Show only legal next statuses as normal actions, derived from current `status`:
 
@@ -167,7 +180,7 @@ Show only legal next statuses as normal actions, derived from current `status`:
 
 For terminal states, show current status with no transition controls (or a short note that no further transitions are available). Do not offer reopen, skip-ahead, or same-status actions as normal controls.
 
-### 6.2 Request behaviour
+### 7.2 Request behaviour
 
 Each action calls:
 
@@ -175,7 +188,7 @@ Each action calls:
 
 On `200`: update displayed ticket from the response (new `status`, refreshed `updatedAt`); leave field values otherwise as returned.
 
-### 6.3 Backend remains source of truth
+### 7.3 Backend remains source of truth
 
 - Filtering buttons is **UX guidance only**.
 - The UI must still handle and display a backend **`409`** if an invalid transition is attempted (race, stale UI, or any bypass).
@@ -184,7 +197,7 @@ On `200`: update displayed ticket from the response (new `status`, refreshed `up
 
 ---
 
-## 7. Error handling
+## 8. Error handling
 
 Parse API errors as RFC 7807 Problem Details when present (`detail`, optional `errors[]`, optional `currentStatus` / `attemptedStatus`).
 
@@ -200,7 +213,7 @@ Do not invent `401` / `403` UI flows.
 
 ---
 
-## 8. Loading and empty states
+## 9. Loading and empty states
 
 | Situation | Behaviour |
 |-----------|-----------|
@@ -208,7 +221,7 @@ Do not invent `401` / `403` UI flows.
 | No search/filter results | Empty list message (e.g. “No tickets match.”), not an error |
 | Empty list with no filters | Empty message (e.g. “No tickets yet.”) plus path to Create |
 | Loading ticket details | Loading indicator for ticket (and comments) until both succeed or ticket fails |
-| Ticket not found | Not-found state (§7); no field/status/comment editors |
+| Ticket not found | Not-found state (§8); no field/status/comment editors |
 | Submitting create | Disable submit; show in-progress state; on failure re-enable |
 | Submitting field update | Disable save; show in-progress; on success refresh ticket display |
 | Submitting comment | Disable send; show in-progress; on success clear body |
@@ -218,10 +231,11 @@ No skeleton-design system is required—simple text/spinner is enough.
 
 ---
 
-## 9. API interaction map
+## 10. API interaction map
 
 | UI action | API operation |
 |-----------|---------------|
+| Load dashboard / recent | `GET /api/v1/tickets` (counts computed in UI) |
 | Load / refresh list (optional `keyword`, `status`) | `GET /api/v1/tickets` |
 | Open create form | (none) |
 | Submit create | `POST /api/v1/tickets` |
@@ -231,11 +245,11 @@ No skeleton-design system is required—simple text/spinner is enough.
 | Transition status | `PATCH /api/v1/tickets/{ticketId}/status` |
 | Add comment | `POST /api/v1/tickets/{ticketId}/comments` |
 
-Dev wiring may use the Vite proxy to the backend (architecture). The UI must not hard-code secrets.
+Dev wiring may use the Vite `:9001` proxy for UI iteration. The **final demo** is same-origin: Spring Boot on **http://localhost:9000** serves the SPA and `/api/v1`. The UI must not hard-code localhost backend URLs or secrets.
 
 ---
 
-## 10. UI validation vs backend validation
+## 11. UI validation vs backend validation
 
 | Layer | Role | Examples |
 |-------|------|----------|
@@ -247,7 +261,7 @@ If client validation and backend disagree, **backend wins**. The UI must always 
 
 ---
 
-## 11. Explicitly out of scope
+## 12. Explicitly out of scope
 
 Do not add to the UI:
 
@@ -255,7 +269,7 @@ Do not add to the UI:
 - User management, roles, or permissions
 - Notifications, email, or toast-driven workflows beyond simple inline/page errors
 - Attachments / file upload
-- Dashboards, charts, or analytics
+- Charts, analytics APIs, or dedicated stats endpoints
 - Pagination or infinite scroll requirements
 - Advanced filtering (multi-status, date ranges, assignee pickers from a user directory)
 - Searching comment bodies
@@ -270,7 +284,7 @@ Do not add to the UI:
 
 | Spec | How this UI flow aligns |
 |------|-------------------------|
-| Architecture | Three screens (list / create / detail); frontend presents and calls API; may hide illegal statuses as UX only |
+| Architecture | Dashboard + list / create / detail; frontend presents and calls API; may hide illegal statuses as UX only; single-port portal |
 | Data model | Priority and status enums; optional assignee string; comments append-only; field updates allowed on terminal statuses |
 | API contract | Separate ticket GET and comments GET; dedicated status PATCH; field PATCH cannot change status; Problem Details errors |
 | State machine | Same five edges for shown actions; terminal states have no outgoing UI actions; backend still rejects illegal transitions |
